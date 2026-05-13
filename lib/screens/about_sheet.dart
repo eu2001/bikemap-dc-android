@@ -6,7 +6,7 @@ class AboutSheet extends StatelessWidget {
   const AboutSheet({super.key});
 
   static const _adminEmail = 'bikemap.dc@gmail.com';
-  static const _userGuideUrl = 'https://sites.google.com/view/bikemapdc/user-guide';
+  static const _userGuideUrl = 'https://eu2001.github.io/bikemap-dc-web/guide.html';
 
   Future<void> _openUrl(BuildContext ctx, String url) async {
     final uri = Uri.parse(url);
