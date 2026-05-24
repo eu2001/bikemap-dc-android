@@ -122,6 +122,20 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
 
+    // Drain any "focus-this-POI" intent (e.g. user tapped a community-alert
+    // banner). Defer the side effects to after the current frame so we
+    // don't trigger setState during build.
+    final focus = state.pendingFocusPOI;
+    if (focus != null) {
+      state.clearFocusPOI();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          _mapCtl.move(focus.latLng, 16);
+        } catch (_) {}
+        _showPOI(focus);
+      });
+    }
+
     final polylines = <Polyline>[];
     for (final f in state.infraFeatures) {
       final t = InfraTypeX.fromRaw(f.type);
@@ -329,29 +343,55 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Bottom-right: locate + zoom controls
+          // Bottom-right: locate button (pinch-to-zoom replaces the +/- buttons).
           Positioned(
             right: 12,
             bottom: 24,
-            child: Column(
-              children: [
-                _RoundIconButton(
-                  child: const Icon(Icons.navigation_outlined, color: Colors.black87),
-                  onTap: _centerOnUser,
-                ),
-                const SizedBox(height: 12),
-                _RoundIconButton(
-                  child: const Icon(Icons.zoom_in, color: Colors.black87),
-                  onTap: () => _mapCtl.move(_mapCtl.camera.center, _mapCtl.camera.zoom + 1),
-                ),
-                const SizedBox(height: 12),
-                _RoundIconButton(
-                  child: const Icon(Icons.zoom_out, color: Colors.black87),
-                  onTap: () => _mapCtl.move(_mapCtl.camera.center, _mapCtl.camera.zoom - 1),
-                ),
-              ],
+            child: _RoundIconButton(
+              child: const Icon(Icons.navigation_outlined, color: Colors.black87),
+              onTap: _centerOnUser,
             ),
           ),
+
+          // Top: in-app red banner when a recent furto POI just got approved.
+          // Parity with iOS: tap to open the POI; auto-dismisses after 6s.
+          if (state.furtoBanner != null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              left: 12,
+              right: 12,
+              child: _FurtoBannerCard(
+                banner: state.furtoBanner!,
+                onTap: () {
+                  final b = state.furtoBanner!;
+                  state.dismissFurtoBanner();
+                  // Find the POI locally if we already have it; otherwise
+                  // synthesise a minimal one from the banner payload.
+                  POI? existing;
+                  for (final p in state.pois) {
+                    if (p.id == b.poiId) {
+                      existing = p;
+                      break;
+                    }
+                  }
+                  final poi = existing ??
+                      POI(
+                        id: b.poiId,
+                        type: 'furto',
+                        lat: b.lat,
+                        lng: b.lng,
+                        title: b.title,
+                        description: b.body,
+                        author: '',
+                      );
+                  try {
+                    _mapCtl.move(poi.latLng, 16);
+                  } catch (_) {}
+                  _showPOI(poi);
+                },
+                onClose: state.dismissFurtoBanner,
+              ),
+            ),
         ],
       ),
     );
@@ -670,6 +710,110 @@ class _RoundIconButton extends StatelessWidget {
           padding: padding,
           alignment: Alignment.center,
           child: child,
+        ),
+      ),
+    );
+  }
+}
+
+
+class _FurtoBannerCard extends StatefulWidget {
+  final FurtoBanner banner;
+  final VoidCallback onTap;
+  final VoidCallback onClose;
+  const _FurtoBannerCard({
+    required this.banner,
+    required this.onTap,
+    required this.onClose,
+  });
+
+  @override
+  State<_FurtoBannerCard> createState() => _FurtoBannerCardState();
+}
+
+class _FurtoBannerCardState extends State<_FurtoBannerCard> {
+  Timer? _autoDismiss;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoDismiss = Timer(const Duration(seconds: 6), () {
+      if (mounted) widget.onClose();
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoDismiss?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: widget.onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFD93636), Color(0xFFA51212)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("🚨", style: TextStyle(fontSize: 28)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.banner.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.banner.body,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.95),
+                        fontSize: 12,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.close,
+                    color: Colors.white.withValues(alpha: 0.85)),
+                onPressed: widget.onClose,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
         ),
       ),
     );

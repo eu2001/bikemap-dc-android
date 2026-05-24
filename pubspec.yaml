@@ -2,7 +2,7 @@ name: bikemap_dc
 description: "DC Collaborative Bike Map"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.1.0+5
 
 environment:
   sdk: ^3.11.5
@@ -36,6 +36,11 @@ dependencies:
   # Storage / Prefs
   shared_preferences: ^2.3.5
 
+  # Sound + Notifications (parity with BikeMap SJC — no Firebase needed)
+  audioplayers: ^6.1.0
+  flutter_local_notifications: ^18.0.1
+  workmanager: ^0.9.0+3
+
   # Utils
   url_launcher: ^6.3.1
   intl: ^0.20.2
@@ -61,3 +66,4 @@ flutter:
   assets:
     - assets/avatars/
     - assets/branding/
+    - assets/audio/

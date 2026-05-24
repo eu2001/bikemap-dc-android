@@ -34,6 +34,24 @@ class _ReportTheftSheetState extends State<ReportTheftSheet> {
   Uint8List? _photoBytes;
   final _picker = ImagePicker();
 
+  /// The registered bike the user picked (if any). When set, the description
+  /// auto-fills with the bike's brand / color / aro and the POI title becomes
+  /// "Theft: <nickname>" — parity with iOS.
+  Map<String, dynamic>? _selectedBike;
+
+  /// Recompute the description from the selected bike's attributes. Doesn't
+  /// touch anything the user typed below the auto-filled block.
+  void _autofillFromBike(Map<String, dynamic> bike) {
+    final parts = <String>[];
+    final brand = (bike['brand'] ?? '').toString().trim();
+    final color = (bike['color'] ?? '').toString().trim();
+    final aro = (bike['aro'] ?? '').toString().trim();
+    if (brand.isNotEmpty) parts.add('Brand: $brand');
+    if (color.isNotEmpty) parts.add('Color: $color');
+    if (aro.isNotEmpty) parts.add('Wheel size: $aro');
+    _descCtl.text = parts.join('\n');
+  }
+
   Future<void> _pickPhoto() async {
     try {
       final f = await _picker.pickImage(
@@ -150,13 +168,22 @@ class _ReportTheftSheetState extends State<ReportTheftSheet> {
         desc += '\n\n📞 ${_contactCtl.text.trim()}';
       }
       if (photoUrl != null) {
-        desc += '\n\n📷 $photoUrl';
+        // Use the same 🖼️ marker the iOS app and the in-app extractors
+        // expect, so the photo renders as an image (not a raw URL line).
+        desc += '\n\n🖼️ $photoUrl';
       }
+      // Title mirrors iOS: "Theft: <nickname>" if a registered bike was picked,
+      // otherwise the generic "Bike Theft".
+      final nickname =
+          (_selectedBike?['nickname'] ?? '').toString().trim();
+      final poiTitle =
+          nickname.isEmpty ? 'Bike Theft' : 'Theft: $nickname';
+
       await state.addPOI(
         type: 'furto',
         lat: _pin.latitude,
         lng: _pin.longitude,
-        title: 'Bike Theft',
+        title: poiTitle,
         description: desc,
       );
 
@@ -368,6 +395,57 @@ class _ReportTheftSheetState extends State<ReportTheftSheet> {
                         ],
                       ),
                     ),
+
+                    // Bike picker — only shown if the user has registered bikes.
+                    Builder(builder: (ctx) {
+                      final bikes = ctx.watch<AppState>().bikes;
+                      if (bikes.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 22),
+                          _sectionHeader('Which bike was stolen?'),
+                          const SizedBox(height: 6),
+                          Container(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: DropdownButton<Map<String, dynamic>>(
+                              value: _selectedBike,
+                              isExpanded: true,
+                              underline: const SizedBox.shrink(),
+                              hint: const Text('Select one of your bikes (optional)'),
+                              items: [
+                                const DropdownMenuItem<Map<String, dynamic>>(
+                                  value: null,
+                                  child: Text('— None —'),
+                                ),
+                                ...bikes.map((b) {
+                                  final nickname =
+                                      (b['nickname'] ?? '').toString();
+                                  final brand = (b['brand'] ?? '').toString();
+                                  final label = brand.isEmpty
+                                      ? nickname
+                                      : '$nickname ($brand)';
+                                  return DropdownMenuItem<Map<String, dynamic>>(
+                                    value: b,
+                                    child: Text(label,
+                                        overflow: TextOverflow.ellipsis),
+                                  );
+                                }),
+                              ],
+                              onChanged: (b) {
+                                setState(() => _selectedBike = b);
+                                if (b != null) _autofillFromBike(b);
+                              },
+                            ),
+                          ),
+                        ],
+                      );
+                    }),
 
                     const SizedBox(height: 22),
                     _sectionHeader('Incident description'),

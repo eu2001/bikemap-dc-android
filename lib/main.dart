@@ -1,16 +1,62 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'models/poi.dart';
 import 'services/supabase_client.dart';
 import 'services/app_state.dart';
+import 'services/local_notifications.dart';
+import 'services/background_poll.dart';
 import 'screens/splash_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/map_screen.dart';
 
+/// Eagerly-created singleton so the notification-tap handler (wired up
+/// before runApp) can route the user to the relevant POI once the map
+/// is on screen.
+final AppState _appState = AppState();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SupabaseConfig.init();
+
+  // Local notifications + 15-minute background poll fan-out (parity with
+  // BikeMap SJC — no Firebase needed). Fire-and-forget so we don't block
+  // the first frame.
+  unawaited(LocalNotifications.instance.init());
+  unawaited(BackgroundPoll.init().then((_) => BackgroundPoll.schedule()));
+
+  // When the user taps a community-alert banner, parse the payload and
+  // ask AppState to focus the POI on the map.
+  LocalNotifications.instance.onTap = (payload) {
+    final params = Uri.splitQueryString(payload);
+    final poiId = params['poi'];
+    if (poiId == null) return;
+    final lat = double.tryParse(params['lat'] ?? '') ?? 0;
+    final lng = double.tryParse(params['lng'] ?? '') ?? 0;
+    final title = params['t'] ?? '';
+    final body = params['b'] ?? '';
+    POI? existing;
+    for (final p in _appState.pois) {
+      if (p.id == poiId) {
+        existing = p;
+        break;
+      }
+    }
+    final poi = existing ??
+        POI(
+          id: poiId,
+          type: 'furto',
+          lat: lat,
+          lng: lng,
+          title: title,
+          description: body,
+          author: '',
+        );
+    _appState.requestFocusPOI(poi);
+  };
+
   runApp(const BikeMapDCApp());
 }
 
@@ -50,8 +96,8 @@ class _BikeMapDCAppState extends State<BikeMapDCApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AppState(),
+    return ChangeNotifierProvider.value(
+      value: _appState,
       child: ValueListenableBuilder<Locale?>(
         valueListenable: AppLocale.override,
         builder: (_, locale, __) => MaterialApp(

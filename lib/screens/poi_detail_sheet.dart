@@ -1,8 +1,20 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/poi.dart';
 import '../models/poi_type.dart';
 import '../services/app_state.dart';
+
+// Furto reports embed the photo as a "🖼️ <url>" line in the description.
+// Helpers to extract / strip it so the photo can be shown as an image
+// instead of a raw link inside the description text.
+// Match either `🖼️` (iOS / current Flutter) or `📷` (legacy Flutter rows)
+// followed by an http(s) URL. Keeps old furto reports renderable.
+final _photoRegex = RegExp(r'(?:🖼️|📷)\s*(https?://\S+)');
+String? _extractPhotoUrl(String text) =>
+    _photoRegex.firstMatch(text)?.group(1);
+String _stripPhotoLine(String text) =>
+    text.replaceAll(_photoRegex, '').trim();
 
 /// "Map Point" bottom sheet — POI title + category card + description + contribution.
 class PoiDetailSheet extends StatelessWidget {
@@ -132,7 +144,36 @@ class PoiDetailSheet extends StatelessWidget {
                     ),
                   ),
 
-                  if (poi.description.isNotEmpty) ...[
+                  // Photo (stolen-bike reports embed it as "🖼️ <url>" in the
+                  // description — surface it as an image instead of a link).
+                  if (_extractPhotoUrl(poi.description) != null) ...[
+                    const SizedBox(height: 22),
+                    _sectionHeader('Photo'),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: CachedNetworkImage(
+                        imageUrl: _extractPhotoUrl(poi.description)!,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => Container(
+                          height: 180,
+                          color: Colors.white,
+                          alignment: Alignment.center,
+                          child: const CircularProgressIndicator(),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          height: 60,
+                          padding: const EdgeInsets.all(14),
+                          color: Colors.white,
+                          alignment: Alignment.centerLeft,
+                          child: Text('Photo unavailable',
+                              style: TextStyle(color: Colors.grey.shade600)),
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  if (_stripPhotoLine(poi.description).isNotEmpty) ...[
                     const SizedBox(height: 22),
                     _sectionHeader('Description'),
                     const SizedBox(height: 6),
@@ -142,7 +183,7 @@ class PoiDetailSheet extends StatelessWidget {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: Text(poi.description,
+                      child: Text(_stripPhotoLine(poi.description),
                           style: const TextStyle(fontSize: 15, height: 1.35)),
                     ),
                   ],

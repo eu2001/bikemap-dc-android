@@ -94,13 +94,6 @@ class _LegendSheetState extends State<LegendSheet> {
                           label: 'Report Theft',
                           onTap: () => Navigator.pop(context, 'report_theft'),
                         ),
-                        const SizedBox(height: 10),
-                        _bigButton(
-                          color: Colors.orange,
-                          icon: Icons.warning_amber_rounded,
-                          label: 'Report Accident',
-                          onTap: () => Navigator.pop(context, 'report_accident'),
-                        ),
                         // Extra bottom padding so the last button isn't flush
                         // against the home indicator / screen edge.
                         SizedBox(
